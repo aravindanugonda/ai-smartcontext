@@ -665,45 +665,104 @@ class SmartChatBot:
             return None, None
 
     def _extract_final_output(self, content: str) -> str:
-        """Extract final output from thinking models, removing thinking process"""
+        """Extract final output from thinking models, removing thinking process and repetitive phrases"""
         if not content:
             return content
+        
+        # Repetitive phrases to filter out
+        repetitive_phrases = [
+            "the conversation is a question from the user",
+            "this is a question from the user",
+            "the user is asking",
+            "the user has asked",
+            "this appears to be a question",
+            "i need to respond to",
+            "let me think about this",
+            "i should provide",
+            "the user wants to know",
+            "this is asking about",
+            "the question is about",
+            "i'll respond with",
+            "let me analyze this",
+            "analyzing the question",
+            "the request is for",
+            "understanding the request"
+        ]
         
         # Common patterns for thinking models
         thinking_markers = [
             "<thinking>",
-            "<thought>", 
+            "<thought>",
+            "<analysis>",
+            "<reasoning>",
+            "thinking:",
+            "analysis:",
+            "reasoning:"
+        ]
+        
+        thinking_end_markers = [
+            "</thinking>",
+            "</thought>",
+            "</analysis>",
+            "</reasoning>"
         ]
         
         # Check if this looks like a thinking model output
         content_lower = content.lower()
         has_thinking = any(marker.lower() in content_lower for marker in thinking_markers)
         
-        if has_thinking:
-            # Try to extract content after thinking sections
-            lines = content.split('\n')
-            output_lines = []
-            skip_thinking = False
+        lines = content.split('\n')
+        output_lines = []
+        skip_thinking = False
+        
+        for line in lines:
+            line_lower = line.lower().strip()
             
+            # Check for thinking section start
+            if any(marker.lower() in line_lower for marker in thinking_markers):
+                skip_thinking = True
+                continue
+            
+            # Check for thinking section end
+            elif any(marker.lower() in line_lower for marker in thinking_end_markers):
+                skip_thinking = False
+                continue
+            
+            # Skip lines that are within thinking sections
+            elif skip_thinking:
+                continue
+            
+            # Filter out repetitive phrases
+            elif any(phrase in line_lower for phrase in repetitive_phrases):
+                continue
+            
+            # Keep lines that have substantial content and aren't just meta-commentary
+            elif line.strip():
+                # Additional filtering for meta-commentary patterns
+                if not (line_lower.startswith("i ") and any(word in line_lower for word in ["think", "believe", "should", "will", "need to"])):
+                    output_lines.append(line)
+        
+        # Clean up the output
+        cleaned_content = '\n'.join(output_lines).strip()
+        
+        # If we have meaningful content after cleaning, use it
+        if len(cleaned_content) > 20 and cleaned_content != content.strip():
+            return cleaned_content
+        
+        # Fallback: if no thinking markers but has repetitive phrases, clean those
+        if not has_thinking:
+            lines = content.split('\n')
+            filtered_lines = []
             for line in lines:
                 line_lower = line.lower().strip()
-                
-                # Skip obvious thinking sections
-                if any(marker.lower() in line_lower for marker in thinking_markers):
-                    skip_thinking = True
-                    continue
-                elif line_lower.startswith('</thinking>') or line_lower.startswith('</thought>'):
-                    skip_thinking = False
-                    continue
-                elif not skip_thinking and line.strip():
-                    output_lines.append(line)
+                if not any(phrase in line_lower for phrase in repetitive_phrases):
+                    filtered_lines.append(line)
             
-            # If we extracted meaningful content, use it
-            extracted = '\n'.join(output_lines).strip()
-            if len(extracted) > 50:  # Ensure we have substantial content
-                return extracted
+            filtered_content = '\n'.join(filtered_lines).strip()
+            if len(filtered_content) > 20:
+                return filtered_content
         
-        # Return original content if no thinking patterns found or extraction failed
+        # Return original content if no filtering needed or extraction failed
         return content
 
     def create_summary_sync(self, messages: List[Dict], provider: AIProvider) -> Optional[ContextSummary]:
@@ -1264,11 +1323,11 @@ Provide a comprehensive summary:"""
             # Show import details
             if 'export_metadata' in import_data:
                 metadata = import_data['export_metadata']
-                with st.expander("📊 Import Details", expanded=False):
-                    st.write(f"**Export Date:** {metadata.get('export_date', 'Unknown')}")
-                    st.write(f"**App Version:** {metadata.get('app_version', 'Unknown')}")
-                    if 'total_messages_summarized' in metadata:
-                        st.write(f"**Messages Summarized:** {metadata['total_messages_summarized']}")
+                st.write("📊 **Import Details:**")
+                st.write(f"• **Export Date:** {metadata.get('export_date', 'Unknown')}")
+                st.write(f"• **App Version:** {metadata.get('app_version', 'Unknown')}")
+                if 'total_messages_summarized' in metadata:
+                    st.write(f"• **Messages Summarized:** {metadata['total_messages_summarized']}")
             
             # Set a flag to indicate successful import and trigger page reload
             st.session_state.import_successful = True
@@ -1278,11 +1337,11 @@ Provide a comprehensive summary:"""
             st.error("❌ Invalid JSON file format")
         except Exception as e:
             st.error(f"❌ Failed to import conversation: {str(e)}")
-            # Add debug info for troubleshooting
-            with st.expander("🔧 Debug Information", expanded=False):
-                st.write(f"Error type: {type(e).__name__}")
-                st.write(f"Error details: {str(e)}")
-                st.write("Please ensure the file is a valid conversation export.")
+            # Add debug info for troubleshooting (using details instead of expander to avoid nesting)
+            st.write("🔧 **Debug Information:**")
+            st.write(f"• Error type: {type(e).__name__}")
+            st.write(f"• Error details: {str(e)}")
+            st.write("• Please ensure the file is a valid conversation export.")
 
     def render_message(self, message: Dict, index: int):
         """Render a single message with proper formatting"""
